@@ -41,7 +41,20 @@ async def player_aggregates(
     period: Period,
     season_id: int,
     section_index: int,
+    only_current: bool = True,
 ) -> list[PlayerAggregate]:
+    """Aggregate war results over a period.
+
+    Leaderboards restrict to the current roster: the race log backfill drags in
+    every player who passed through the clan (160 of them against 49 members on
+    a real clan), and ranking ex-members is noise. Single-player lookups keep
+    them, so history stays readable after someone leaves.
+    """
     war_rows = await queries.load_war_rows(conn)
     names = await queries.get_member_names(conn)
+
+    if only_current:
+        current = {c.player_tag for c in await queries.get_roster(conn)}
+        war_rows = [r for r in war_rows if r.player_tag in current]
+
     return aggregate(war_rows, names, period, season_id, section_index)

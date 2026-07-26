@@ -255,7 +255,9 @@ async def _answer_player_stats(
         return
 
     race, season_id = await _race(deps)
-    aggregates = await player_aggregates(deps.conn, period, season_id, race.section_index)
+    aggregates = await player_aggregates(
+        deps.conn, period, season_id, race.section_index, only_current=False
+    )
     agg = next((a for a in aggregates if a.player_tag == player_tag), None)
     await message.answer(formatters.player_stats(agg, period), parse_mode="HTML")
 

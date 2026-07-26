@@ -128,6 +128,33 @@ async def test_rating_reads_backfilled_history(conn, deps):
     assert "2400" in msg.replies[0]
 
 
+async def test_rating_excludes_players_who_left(conn, deps):
+    await seed_roster(conn)
+    await queries.ensure_historical_members(conn, [("#GONE", "Ghost")])
+    await queries.upsert_war(conn, 58, 0, "20260713T101500.000Z", 1, 5000)
+    await queries.upsert_war_results(
+        conn, [(58, 0, "#P1", 2400, 16, 0), (58, 0, "#GONE", 9999, 16, 0)]
+    )
+    msg = FakeMessage()
+
+    await handlers.cmd_rating(msg, cmd("season"), deps)
+
+    assert "Vasya" in msg.replies[0]
+    assert "Ghost" not in msg.replies[0]
+
+
+async def test_stats_still_works_for_a_departed_player(conn, deps):
+    await seed_roster(conn)
+    await queries.ensure_historical_members(conn, [("#GONE", "Ghost")])
+    await queries.upsert_war(conn, 58, 0, "20260713T101500.000Z", 1, 5000)
+    await queries.upsert_war_results(conn, [(58, 0, "#GONE", 3300, 16, 0)])
+    msg = FakeMessage()
+
+    await handlers.cmd_stats(msg, cmd("Ghost season"), deps)
+
+    assert "3300" in msg.replies[0]
+
+
 async def test_me_requires_a_link(conn, deps):
     msg = FakeMessage()
 
