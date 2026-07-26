@@ -1,8 +1,26 @@
 # Deploy
 
+Live at `<bot-host>:/opt/crwarbot`, service `crwarbot`. Push changes with
+`./deploy/sync.sh` from the repo root.
+
 The Supercell API token is bound to the IP address that requests it, so generate
 the token on developer.clashroyale.com **from the server's IP**, not from your
 laptop.
+
+## Telegram is blocked on this host
+
+`api.telegram.org` times out on TCP 443 from `<bot-host>` while
+`api.clashroyale.com` is reachable. A SOCKS5 relay (dante) runs on
+`<proxy-host>:<port>`, configured in `/etc/danted.conf` to accept only this
+host, and `TELEGRAM_PROXY` points the bot at it. Clash Royale traffic
+deliberately does not use the proxy — its token is pinned to the bot host's IP.
+
+Check the relay with:
+
+```bash
+curl -s --socks5-hostname 'USER:PASS@<proxy-host>:<port>' \
+     -o /dev/null -w '%{http_code}\n' https://api.telegram.org
+```
 
 ## Install
 
