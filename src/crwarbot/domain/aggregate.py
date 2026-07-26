@@ -16,6 +16,7 @@ class Snapshot:
     fame: int
     decks_used: int
     decks_used_today: int
+    clan_finished: int = 0
 
 
 @dataclass(frozen=True)
@@ -29,6 +30,7 @@ class DayResult:
     fame_end: int
     fame_delta: int
     day_date: str
+    clan_finished: int
 
 
 def compute_day_results(snapshots: Iterable[Snapshot]) -> list[DayResult]:
@@ -62,6 +64,7 @@ def compute_day_results(snapshots: Iterable[Snapshot]) -> list[DayResult]:
                     fame_end=snap.fame,
                     fame_delta=snap.fame - previous_fame,
                     day_date=snap.ts[:10],
+                    clan_finished=snap.clan_finished,
                 )
             )
             previous_fame = snap.fame

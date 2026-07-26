@@ -88,6 +88,7 @@ class Poller:
             section_index=race.section_index,
             period_index=race.period_index,
             period_type=race.period_type,
+            clan_finished=race.clan.finish_time is not None,
         )
 
         changed = 0

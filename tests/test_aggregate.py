@@ -1,7 +1,7 @@
 from crwarbot.domain.aggregate import Snapshot, compute_day_results
 
 
-def snap(period, ts, fame, today, tag="#A", period_type="warDay"):
+def snap(period, ts, fame, today, tag="#A", period_type="warDay", finished=0):
     return Snapshot(
         ts=ts,
         season_id=1,
@@ -12,6 +12,7 @@ def snap(period, ts, fame, today, tag="#A", period_type="warDay"):
         fame=fame,
         decks_used=0,
         decks_used_today=today,
+        clan_finished=finished,
     )
 
 
@@ -64,3 +65,10 @@ def test_players_are_tracked_independently():
         ]
     )
     assert {(r.player_tag, r.fame_end) for r in results} == {("#A", 800), ("#B", 400)}
+
+
+def test_clan_finished_flag_is_carried_into_the_day():
+    results = compute_day_results(
+        [snap(20, "2026-07-26T13:45:00+00:00", 2150, 0, finished=1)]
+    )
+    assert results[0].clan_finished == 1

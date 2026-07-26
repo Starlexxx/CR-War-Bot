@@ -32,6 +32,14 @@ def test_avg_normalises_by_wars_played():
     assert rows[1].score == 1200
 
 
+def test_history_without_observed_days_carries_no_penalty():
+    # Backfilled races give medals but no attendance, so nothing to punish.
+    rows = rate([agg("#A", "A", 25000, 10, 0, 0)], miss_penalty=50)
+    assert rows[0].score == 2500
+    assert rows[0].missed_attacks == 0
+    assert rows[0].observed_days == 0
+
+
 def test_missed_attacks_cost_medals():
     clean = agg("#A", "Clean", 2000, 1, 4, 16)
     slacker = agg("#B", "Slacker", 2000, 1, 4, 12)

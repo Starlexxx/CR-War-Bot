@@ -142,6 +142,47 @@ async def test_first_rollover_pins_down_the_reset_time(conn, settings, client):
 
 
 @respx.mock
+async def test_day_after_the_clan_finished_is_not_an_attack_opportunity(
+    conn, settings, client
+):
+    # Regression: the bot started mid-race after the clan had already finished.
+    # Everyone showed decksUsedToday=0, which was read as four missed attacks.
+    race = race_payload(
+        [participant("#P1", "One", 2150, 12, 0)],
+        period_index=20,
+        finish_time="20260726T095105.000Z",
+    )
+    mock_api(respx.mock, race, members=(("#P1", "One"),))
+
+    await Poller(conn, client, FakeBot(), settings).tick()
+
+    rows = await queries.load_war_rows(conn)
+    assert [(r.war_days, r.decks_used) for r in rows] == [(0, 0)]
+
+
+@respx.mock
+async def test_backfilled_war_contributes_medals_but_no_attendance(conn, settings, client):
+    # war_results.decks_used counts training decks too, so it cannot be trusted
+    # for attendance even though its fame is exact.
+    race = race_payload([participant("#P1", "One", 100, 1, 1)], section_index=1)
+    mock_api(
+        respx.mock,
+        race,
+        members=(("#P1", "One"),),
+        log_entries=[
+            (57, 0, "20260713T101500.000Z", [participant("#P1", "One", 2550, 16, 0)]),
+        ],
+    )
+
+    await Poller(conn, client, FakeBot(), settings).tick()
+
+    backfilled = [r for r in await queries.load_war_rows(conn) if r.section_index == 0]
+    assert len(backfilled) == 1
+    assert backfilled[0].fame == 2550
+    assert (backfilled[0].war_days, backfilled[0].decks_used) == (0, 0)
+
+
+@respx.mock
 async def test_training_day_sends_no_reminder(conn, settings, client):
     race = race_payload(
         [participant("#P1", "One", 0, 0, 0)],

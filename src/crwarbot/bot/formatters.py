@@ -86,6 +86,8 @@ def rating(rows: Sequence[RatingRow], period: Period, mode: str) -> str:
             detail = f"{r.score:.0f} за войну · {MEDAL} {r.fame} · войн {r.wars}"
             if r.missed_attacks:
                 detail += f" · пропусков {r.missed_attacks}"
+            if r.observed_days:
+                detail += f" · дней в зачёте {r.observed_days}"
         else:
             detail = f"{MEDAL} {r.fame} · войн {r.wars}"
         lines.append(f"{place} {escape(r.name)} — {detail}")
@@ -93,8 +95,15 @@ def rating(rows: Sequence[RatingRow], period: Period, mode: str) -> str:
 
 
 def discipline(rows: Sequence[DisciplineRow], period: Period) -> str:
+    # Attendance needs war days the bot actually watched; the race log backfill
+    # cannot supply them, so early on there is nothing to rank.
+    rows = [r for r in rows if r.possible_attacks]
     if not rows:
-        return f"Нет данных за период: {period.label()}."
+        return (
+            f"Нет данных по атакам за период: {period.label()}.\n\n"
+            "Посещаемость считается только по боевым дням, которые бот наблюдал сам. "
+            "История из API даёт медали, но не атаки."
+        )
 
     lines = [f"📋 Дисциплина ({period.label()})", ""]
     for i, r in enumerate(rows, start=1):
@@ -111,17 +120,21 @@ def player_stats(agg: PlayerAggregate | None, period: Period) -> str:
         return f"Нет данных за период: {period.label()}."
 
     avg = agg.fame / agg.wars
-    ratio = agg.decks_used / agg.possible_attacks if agg.possible_attacks else 0.0
-    return "\n".join(
-        [
-            f"📊 {escape(agg.name)} ({period.label()})",
-            "",
-            f"{MEDAL} медалей: {agg.fame}",
-            f"Войн: {agg.wars} · в среднем {avg:.0f} за войну",
-            f"Атак: {agg.decks_used}/{agg.possible_attacks} ({ratio * 100:.0f}%)",
-            f"Пропущено атак: {agg.missed_attacks}",
-        ]
-    )
+    lines = [
+        f"📊 {escape(agg.name)} ({period.label()})",
+        "",
+        f"{MEDAL} медалей: {agg.fame}",
+        f"Войн: {agg.wars} · в среднем {avg:.0f} за войну",
+    ]
+
+    if agg.possible_attacks:
+        ratio = agg.decks_used / agg.possible_attacks
+        lines.append(f"Атак: {agg.decks_used}/{agg.possible_attacks} ({ratio * 100:.0f}%)")
+        lines.append(f"Пропущено атак: {agg.missed_attacks}")
+    else:
+        lines.append("Атаки: нет данных — бот не наблюдал ни одного боевого дня")
+
+    return "\n".join(lines)
 
 
 def roster(linked: Sequence[tuple[str, Link]], unlinked: Sequence[str]) -> str:

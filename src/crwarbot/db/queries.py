@@ -162,6 +162,7 @@ class RaceContext:
     section_index: int
     period_index: int
     period_type: str
+    clan_finished: bool = False
 
 
 async def insert_snapshot_if_changed(
@@ -197,8 +198,8 @@ async def insert_snapshot_if_changed(
 
     await conn.execute(
         "INSERT INTO player_snapshots (ts, season_id, section_index, period_index, period_type, "
-        "player_tag, fame, decks_used, decks_used_today, boat_attacks) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "player_tag, fame, decks_used, decks_used_today, boat_attacks, clan_finished) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             _now(),
             ctx.season_id,
@@ -210,6 +211,7 @@ async def insert_snapshot_if_changed(
             decks_used,
             decks_used_today,
             boat_attacks,
+            int(ctx.clan_finished),
         ),
     )
     return True
@@ -220,7 +222,7 @@ async def load_snapshots(
 ) -> list[Snapshot]:
     async with conn.execute(
         "SELECT ts, season_id, section_index, period_index, period_type, player_tag, "
-        "fame, decks_used, decks_used_today FROM player_snapshots "
+        "fame, decks_used, decks_used_today, clan_finished FROM player_snapshots "
         "WHERE season_id = ? AND section_index = ? ORDER BY ts",
         (season_id, section_index),
     ) as cur:
@@ -231,13 +233,13 @@ async def load_snapshots(
 async def upsert_day_results(conn: aiosqlite.Connection, rows: Iterable[DayResult]) -> None:
     await conn.executemany(
         "INSERT INTO day_results (season_id, section_index, period_index, period_type, "
-        "player_tag, decks_used_today, fame_end, fame_delta, day_date) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
+        "player_tag, decks_used_today, fame_end, fame_delta, day_date, clan_finished) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
         "ON CONFLICT(season_id, section_index, period_index, player_tag) DO UPDATE SET "
         "  period_type = excluded.period_type, "
         "  decks_used_today = excluded.decks_used_today, "
         "  fame_end = excluded.fame_end, fame_delta = excluded.fame_delta, "
-        "  day_date = excluded.day_date",
+        "  day_date = excluded.day_date, clan_finished = excluded.clan_finished",
         [
             (
                 r.season_id,
@@ -249,6 +251,7 @@ async def upsert_day_results(conn: aiosqlite.Connection, rows: Iterable[DayResul
                 r.fame_end,
                 r.fame_delta,
                 r.day_date,
+                r.clan_finished,
             )
             for r in rows
         ],
@@ -307,17 +310,23 @@ class WarRow:
 async def load_war_rows(conn: aiosqlite.Connection) -> list[WarRow]:
     """Per-player per-war rows, merging polled days with backfilled log results.
 
-    `war_results` comes straight from Supercell and wins on medal totals. Only
-    `day_results` knows how many attacks were actually used on each war day, so
-    discipline numbers come from there when we have them.
+    Medals and attendance come from different sources on purpose.
+
+    `war_results.fame` is Supercell's own weekly total, so medals are exact for
+    every race in the log. `war_results.decks_used` is *not* usable for
+    attendance: it counts training-day decks too, so a player with 12 war
+    attacks and 4 training attacks is indistinguishable from one who played all
+    16 war attacks. Attendance therefore only counts war days the bot polled
+    itself, and days on which the clan had already finished are excluded because
+    no attack was possible on them.
     """
     async with conn.execute(
         f"""
         SELECT d.season_id, d.section_index, d.player_tag,
                MAX(d.fame_end) AS fame,
-               SUM(CASE WHEN d.period_type IN ({WAR_TYPES_SQL})
+               SUM(CASE WHEN d.period_type IN ({WAR_TYPES_SQL}) AND d.clan_finished = 0
                         THEN d.decks_used_today ELSE 0 END) AS decks_used,
-               SUM(CASE WHEN d.period_type IN ({WAR_TYPES_SQL})
+               SUM(CASE WHEN d.period_type IN ({WAR_TYPES_SQL}) AND d.clan_finished = 0
                         THEN 1 ELSE 0 END) AS war_days,
                MAX(d.day_date) AS war_date
         FROM day_results d
@@ -353,14 +362,15 @@ async def load_war_rows(conn: aiosqlite.Connection) -> list[WarRow]:
         created = r["created_date"]
         war_date = (created[:4] + "-" + created[4:6] + "-" + created[6:8]) if created else ""
         if polled is None:
-            # War predates the bot: no per-day data, assume a standard 4 war days.
+            # War predates the bot. Medals are trustworthy, attendance is not
+            # knowable, so it contributes zero attack opportunities.
             days[key] = WarRow(
                 season_id=r["season_id"],
                 section_index=r["section_index"],
                 player_tag=r["player_tag"],
                 fame=r["fame"],
-                decks_used=r["decks_used"],
-                war_days=4,
+                decks_used=0,
+                war_days=0,
                 war_date=war_date,
             )
         else:

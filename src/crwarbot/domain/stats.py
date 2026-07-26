@@ -46,6 +46,7 @@ class RatingRow:
     fame: int
     wars: int
     missed_attacks: int
+    observed_days: int
 
 
 @dataclass(frozen=True)
@@ -128,6 +129,7 @@ def rate(
                 fame=agg.fame,
                 wars=agg.wars,
                 missed_attacks=agg.missed_attacks,
+                observed_days=agg.war_days,
             )
         )
     rows.sort(key=lambda r: (-r.score, r.name.lower()))
