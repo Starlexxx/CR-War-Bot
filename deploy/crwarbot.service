@@ -1,0 +1,18 @@
+[Unit]
+Description=CRWarBot - Clash Royale clan war tracker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=crwarbot
+WorkingDirectory=/opt/crwarbot
+EnvironmentFile=/opt/crwarbot/.env
+ExecStart=/opt/crwarbot/.venv/bin/python -m crwarbot.bot.main
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
