@@ -9,6 +9,9 @@ class Settings(BaseSettings):
 
     telegram_bot_token: str = Field(...)
     telegram_chat_id: int = Field(...)
+    # Only Telegram is proxied. The Supercell token is bound to this host's own
+    # IP address, so clashroyale.com must be reached directly.
+    telegram_proxy: str | None = None
     cr_api_token: str = Field(...)
     cr_clan_tag: str = Field(...)
     cr_api_base_url: str = "https://api.clashroyale.com/v1"

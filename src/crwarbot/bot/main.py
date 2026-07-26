@@ -4,6 +4,7 @@ import asyncio
 import logging
 
 from aiogram import Bot, Dispatcher
+from aiogram.client.session.aiohttp import AiohttpSession
 
 from crwarbot.api.client import SupercellClient
 from crwarbot.api.rate_limiter import RateLimiter
@@ -30,7 +31,10 @@ async def main() -> None:
         token=settings.cr_api_token,
         rate_limiter=RateLimiter(rate_per_sec=5, max_concurrent=3),
     )
-    bot = Bot(token=settings.telegram_bot_token)
+    session = AiohttpSession(proxy=settings.telegram_proxy) if settings.telegram_proxy else None
+    if session is not None:
+        log.info("routing Telegram through a proxy")
+    bot = Bot(token=settings.telegram_bot_token, session=session)
     poller = Poller(conn, client, bot, settings)
 
     dispatcher = Dispatcher()
