@@ -99,6 +99,23 @@ async def test_today_lists_who_still_owes_attacks(conn, deps):
     assert "Vasya" not in msg.replies[0]
 
 
+async def test_today_reports_a_finished_race_instead_of_mass_debt(conn, deps):
+    await seed_roster(conn)
+    race = CurrentRiverRace.model_validate(
+        race_payload(
+            [participant("#P1", "Vasya", 900, 4, 0), participant("#P2", "Kolya", 300, 2, 0)],
+            finish_time="20260726T095105.000Z",
+        )
+    )
+    deps.poller = SimpleNamespace(state=RaceState(race=race, season_id=58))
+    msg = FakeMessage()
+
+    await handlers.cmd_today(msg, deps)
+
+    assert "финишировал" in msg.replies[0]
+    assert "Kolya" not in msg.replies[0]
+
+
 async def test_war_lists_participants_by_medals(conn, deps):
     msg = FakeMessage()
 

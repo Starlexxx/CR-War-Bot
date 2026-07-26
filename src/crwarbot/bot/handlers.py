@@ -164,7 +164,10 @@ async def cmd_today(message: Message, deps: Deps) -> None:
     race, _ = await _race(deps)
     debtors, total = await build_debtors(deps.conn, race)
     await message.answer(
-        formatters.today(debtors, total, race.period_type), parse_mode="HTML"
+        formatters.today(
+            debtors, total, race.period_type, finished=race.clan.finish_time is not None
+        ),
+        parse_mode="HTML",
     )
 
 

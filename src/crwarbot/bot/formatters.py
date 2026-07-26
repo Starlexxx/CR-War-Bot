@@ -42,9 +42,19 @@ def reminder(kind: str, debtors: Sequence[Debtor]) -> str:
     return "\n".join(lines)
 
 
-def today(debtors: Sequence[Debtor], total_participants: int, period_type: str) -> str:
+def today(
+    debtors: Sequence[Debtor],
+    total_participants: int,
+    period_type: str,
+    finished: bool = False,
+) -> str:
     if period_type not in ("warDay", "colosseum"):
         return "Сейчас день тренировки — атаки войны не считаются."
+
+    if finished:
+        # Everyone shows 0/4 once the boat is home, which would read as a
+        # clan-wide no-show if reported as debt.
+        return "🏁 Клан уже финишировал гонку. Атак на сегодня больше нет."
 
     done = total_participants - len(debtors)
     if not debtors:
