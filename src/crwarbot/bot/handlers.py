@@ -172,10 +172,13 @@ async def cmd_today(message: Message, deps: Deps) -> None:
 async def cmd_war(message: Message, deps: Deps) -> None:
     race, _ = await _race(deps)
     names = await queries.get_member_names(deps.conn)
+    current = {c.player_tag for c in await queries.get_roster(deps.conn)}
     rows = sorted(
         (
             (p.name or names.get(p.tag, p.tag), p.fame, p.decks_used)
             for p in race.clan.participants
+            # Departed players stay listed if they scored, drop out if they did not.
+            if p.tag in current or p.fame > 0
         ),
         key=lambda r: (-r[1], r[0].lower()),
     )

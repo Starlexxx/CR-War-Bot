@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from typing import Literal
 
 WAR_PERIOD_TYPES = frozenset({"warDay", "colosseum"})
@@ -64,20 +64,34 @@ def parse_period(arg: str | None) -> Period:
     return Period("range", start, end)
 
 
-def daily_reset_after(now: datetime, war_end: datetime) -> datetime:
-    """End of the war day that is currently running.
+def parse_reset_time(value: str) -> time:
+    """Parse an `HH:MM` daily reset time."""
+    hour, minute = value.split(":")
+    return time(hour=int(hour), minute=int(minute), tzinfo=UTC)
 
-    The game's daily reset is not a fixed constant we can hardcode, but every
-    river race ends exactly at one, so `warEndTime`'s time-of-day gives it to us.
+
+def resolve_reset_time(
+    war_end: datetime | None, observed: str | None, configured: str
+) -> time:
+    """Pick the most trustworthy source for the daily reset time.
+
+    `currentriverrace` is documented to carry `warEndTime`, whose time-of-day is
+    exactly a daily reset, but live responses often omit it. Second best is a
+    reset the poller has actually watched happen (`periodIndex` incrementing),
+    which is accurate to the poll interval. The configured value is only a
+    bootstrap for the first day of operation.
     """
+    if war_end is not None:
+        return war_end.astimezone(UTC).timetz().replace(second=0, microsecond=0)
+    if observed:
+        return parse_reset_time(observed)
+    return parse_reset_time(configured)
+
+
+def daily_reset_after(now: datetime, reset: time) -> datetime:
+    """End of the war day that is currently running."""
     now = now.astimezone(UTC)
-    war_end = war_end.astimezone(UTC)
-    candidate = now.replace(
-        hour=war_end.hour,
-        minute=war_end.minute,
-        second=war_end.second,
-        microsecond=0,
-    )
+    candidate = now.replace(hour=reset.hour, minute=reset.minute, second=0, microsecond=0)
     if candidate <= now:
         candidate += timedelta(days=1)
     return candidate

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, time, timedelta
 
 import aiosqlite
 from aiogram import Bot
@@ -22,19 +22,19 @@ async def check_and_send(
     race: CurrentRiverRace,
     season_id: int,
     grace_minutes: int,
+    reset: time,
     now: datetime | None = None,
 ) -> list[str]:
     """Send whichever war-day reminders are due, at most once each."""
     if race.period_type not in WAR_PERIOD_TYPES:
         return []
 
-    war_end = race.war_end
-    if war_end is None:
-        log.warning("currentriverrace has no warEndTime, skipping reminders")
+    if race.clan.finish_time is not None:
+        # Boat already crossed the line; nobody can add attacks this section.
         return []
 
     now = now or datetime.now(UTC)
-    day_end = daily_reset_after(now, war_end)
+    day_end = daily_reset_after(now, reset)
     already = await queries.sent_reminder_kinds(
         conn, season_id, race.section_index, race.period_index
     )

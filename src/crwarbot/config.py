@@ -23,6 +23,8 @@ class Settings(BaseSettings):
     roster_interval_seconds: int = 3600
     miss_penalty: int = 50
     reminder_grace_minutes: int = 30
+    # Bootstrap only. The poller overwrites this with the reset it observes.
+    war_day_reset_utc: str = "10:00"
 
     log_level: str = "INFO"
 

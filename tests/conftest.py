@@ -43,20 +43,32 @@ def clan_payload(members):
     }
 
 
-def race_payload(participants, period_index=3, period_type="warDay", section_index=1):
+def race_payload(
+    participants,
+    period_index=3,
+    period_type="warDay",
+    section_index=1,
+    finish_time=None,
+):
+    """Shaped after a real `currentriverrace` response.
+
+    Live responses carry no `warEndTime` or `collectionEndTime` even though the
+    docs list them, so the fixtures must not either.
+    """
+    clan = {
+        "tag": CLAN_TAG,
+        "name": "Test Clan",
+        "fame": sum(p["fame"] for p in participants),
+        "participants": participants,
+    }
+    if finish_time is not None:
+        clan["finishTime"] = finish_time
     return {
         "state": "full",
         "sectionIndex": section_index,
         "periodIndex": period_index,
         "periodType": period_type,
-        "warEndTime": "20260727T101500.000Z",
-        "collectionEndTime": "20260724T101500.000Z",
-        "clan": {
-            "tag": CLAN_TAG,
-            "name": "Test Clan",
-            "fame": sum(p["fame"] for p in participants),
-            "participants": participants,
-        },
+        "clan": clan,
         "clans": [],
     }
 

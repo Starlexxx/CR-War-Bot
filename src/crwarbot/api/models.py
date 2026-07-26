@@ -38,6 +38,8 @@ class RiverRaceClan(BaseModel):
     tag: str
     name: str = ""
     fame: int = 0
+    # Set once the clan crosses the finish line; absent while the race is live.
+    finish_time: str | None = Field(None, alias="finishTime")
     participants: list[RiverRaceParticipant] = Field(default_factory=list)
 
 

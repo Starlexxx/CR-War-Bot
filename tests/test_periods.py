@@ -8,7 +8,9 @@ from crwarbot.domain.periods import (
     daily_reset_after,
     due_reminders,
     parse_period,
+    parse_reset_time,
     reminder_target,
+    resolve_reset_time,
 )
 
 
@@ -37,16 +39,32 @@ def test_parse_rejects_garbage():
         parse_period("last-week")
 
 
-def test_daily_reset_takes_time_of_day_from_war_end():
-    war_end = datetime(2026, 7, 27, 10, 15, tzinfo=UTC)
+def test_daily_reset_rolls_to_tomorrow_once_today_passed():
     now = datetime(2026, 7, 25, 18, 0, tzinfo=UTC)
-    assert daily_reset_after(now, war_end) == datetime(2026, 7, 26, 10, 15, tzinfo=UTC)
+    reset = parse_reset_time("10:15")
+    assert daily_reset_after(now, reset) == datetime(2026, 7, 26, 10, 15, tzinfo=UTC)
 
 
 def test_daily_reset_same_day_when_reset_still_ahead():
-    war_end = datetime(2026, 7, 27, 10, 15, tzinfo=UTC)
     now = datetime(2026, 7, 25, 9, 0, tzinfo=UTC)
-    assert daily_reset_after(now, war_end) == datetime(2026, 7, 25, 10, 15, tzinfo=UTC)
+    reset = parse_reset_time("10:15")
+    assert daily_reset_after(now, reset) == datetime(2026, 7, 25, 10, 15, tzinfo=UTC)
+
+
+def test_war_end_time_wins_when_the_api_provides_it():
+    war_end = datetime(2026, 7, 27, 9, 51, 5, tzinfo=UTC)
+    reset = resolve_reset_time(war_end, "08:00", "10:00")
+    assert (reset.hour, reset.minute) == (9, 51)
+
+
+def test_observed_reset_beats_the_configured_guess():
+    reset = resolve_reset_time(None, "09:50", "10:00")
+    assert (reset.hour, reset.minute) == (9, 50)
+
+
+def test_configured_reset_is_the_last_resort():
+    reset = resolve_reset_time(None, None, "10:00")
+    assert (reset.hour, reset.minute) == (10, 0)
 
 
 def test_reminders_fire_at_their_target():

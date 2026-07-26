@@ -122,6 +122,26 @@ async def test_season_id_rolls_over_when_sections_restart(conn, settings, client
 
 
 @respx.mock
+async def test_first_rollover_pins_down_the_reset_time(conn, settings, client):
+    # The API never tells us when a war day ends, so the poller has to watch for it.
+    day_one = race_payload([participant("#P1", "One", 100, 1, 1)], period_index=19)
+    mock_api(respx.mock, day_one)
+    poller = Poller(conn, client, FakeBot(), settings)
+    await poller.tick()
+    assert await queries.kv_get(conn, "observed_reset_utc") is None
+
+    respx.mock.get(f"{BASE}/clans/{CLAN}/currentriverrace").mock(
+        return_value=httpx.Response(
+            200, json=race_payload([participant("#P1", "One", 0, 0, 0)], period_index=20)
+        )
+    )
+    await poller.tick()
+
+    observed = await queries.kv_get(conn, "observed_reset_utc")
+    assert observed is not None and len(observed) == 5
+
+
+@respx.mock
 async def test_training_day_sends_no_reminder(conn, settings, client):
     race = race_payload(
         [participant("#P1", "One", 0, 0, 0)],
