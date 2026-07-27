@@ -5,6 +5,7 @@ import logging
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.session.aiohttp import AiohttpSession
+from aiogram.types import BotCommand
 
 from crwarbot.api.client import SupercellClient
 from crwarbot.api.rate_limiter import RateLimiter
@@ -16,6 +17,22 @@ from crwarbot.db.connection import apply_migrations, connect
 from crwarbot.worker.poller import Poller
 
 log = logging.getLogger(__name__)
+
+# Shown in Telegram's "/" hint, so nobody has to memorise the command list.
+COMMANDS = [
+    BotCommand(command="menu", description="Кнопки вместо команд"),
+    BotCommand(command="today", description="Кто ещё не отыграл сегодня"),
+    BotCommand(command="war", description="Медали и атаки в текущей войне"),
+    BotCommand(command="rating", description="Рейтинг клана"),
+    BotCommand(command="discipline", description="Процент отыгранных атак"),
+    BotCommand(command="me", description="Своя статистика"),
+    BotCommand(command="stats", description="Статистика игрока по нику"),
+    BotCommand(command="link", description="Привязать телеграм к игровому нику"),
+    BotCommand(command="unlink", description="Снять привязку"),
+    BotCommand(command="whoami", description="Показать свою привязку"),
+    BotCommand(command="roster", description="Кто привязан к телеграму"),
+    BotCommand(command="help", description="Справка"),
+]
 
 
 async def main() -> None:
@@ -46,6 +63,8 @@ async def main() -> None:
     dispatcher.callback_query.middleware(access)
     dispatcher.include_router(router)
     dispatcher["deps"] = Deps(conn=conn, client=client, settings=settings, poller=poller)
+
+    await bot.set_my_commands(COMMANDS)
 
     poll_task = asyncio.create_task(poller.run(), name="poller")
     try:

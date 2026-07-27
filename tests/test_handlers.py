@@ -177,7 +177,7 @@ async def test_me_requires_a_link(conn, deps):
 
     await handlers.cmd_me(msg, cmd(None), deps)
 
-    assert "привяжись" in msg.replies[0]
+    assert "не привязан" in msg.replies[0]
 
 
 async def test_roster_separates_linked_from_unlinked(conn, deps):

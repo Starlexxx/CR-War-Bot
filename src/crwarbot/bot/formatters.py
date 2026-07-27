@@ -150,6 +150,10 @@ def roster(linked: Sequence[tuple[str, Link]], unlinked: Sequence[str]) -> str:
     return "\n".join(lines)
 
 
+MENU = """<b>CRWarBot</b>
+
+Выбери, что показать. Команды тоже работают — список по кнопке «/» рядом с полем ввода."""
+
 HELP = """<b>CRWarBot</b>
 
 Привязка:
@@ -160,6 +164,9 @@ HELP = """<b>CRWarBot</b>
 Война:
 /today — кто ещё не отыграл сегодня
 /war — медали и атаки в текущей войне
+
+Меню:
+/menu — кнопки вместо команд
 
 Статистика:
 /me [период] — своя статистика

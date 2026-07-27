@@ -17,8 +17,13 @@ war, per season and all time.
 
 ## Commands
 
+`/menu` opens an inline keyboard covering the same ground, with buttons to
+switch the period on a result in place. Telegram's own `/` hint lists every
+command with a description, so nothing has to be memorised.
+
 | Command | Description |
 |---|---|
+| `/menu` | Inline keyboard instead of typing commands |
 | `/link <nick\|tag>` | Link your Telegram account to a clan member |
 | `/unlink`, `/whoami` | Manage the link |
 | `/today` | Who has not played yet today |

@@ -6,12 +6,18 @@ from html import escape
 
 import aiosqlite
 from aiogram import Router
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command, CommandObject
-from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from aiogram.types import (
+    CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Message,
+)
 
 from crwarbot.api.client import SupercellClient
 from crwarbot.api.models import CurrentRiverRace
-from crwarbot.bot import formatters
+from crwarbot.bot import formatters, keyboards
 from crwarbot.config import Settings
 from crwarbot.db import queries
 from crwarbot.domain import matching, stats
@@ -23,10 +29,13 @@ log = logging.getLogger(__name__)
 
 router = Router()
 
+Rendered = tuple[str, InlineKeyboardMarkup | None]
+
 PERIOD_HELP = (
     "Период: <code>war</code>, <code>season</code>, <code>all</code> "
     "или <code>2026-01-01..2026-03-01</code>"
 )
+NOT_LINKED = "Ты не привязан. Нажми «Привязки» или напиши <code>/link ник</code>"
 
 
 @dataclass
@@ -55,9 +64,77 @@ def _split_period(args: str | None, *, expect_mode: bool = False) -> tuple[Perio
     return parse_period(tokens[0] if tokens else None), mode
 
 
+# --- renderers ----------------------------------------------------------------
+# Shared by the typed commands and the inline menu so both always agree.
+
+
+async def _render_today(deps: Deps) -> Rendered:
+    race, _ = await _race(deps)
+    debtors, total = await build_debtors(deps.conn, race)
+    text = formatters.today(
+        debtors, total, race.period_type, finished=race.clan.finish_time is not None
+    )
+    return text, keyboards.plain()
+
+
+async def _render_war(deps: Deps) -> Rendered:
+    race, _ = await _race(deps)
+    names = await queries.get_member_names(deps.conn)
+    current = {c.player_tag for c in await queries.get_roster(deps.conn)}
+    rows = sorted(
+        (
+            (p.name or names.get(p.tag, p.tag), p.fame, p.decks_used)
+            for p in race.clan.participants
+            # Departed players stay listed if they scored, drop out if they did not.
+            if p.tag in current or p.fame > 0
+        ),
+        key=lambda r: (-r[1], r[0].lower()),
+    )
+    return formatters.war_overview(rows, race.clan.fame), keyboards.plain()
+
+
+async def _render_rating(deps: Deps, period: Period, mode: str) -> Rendered:
+    race, season_id = await _race(deps)
+    aggregates = await player_aggregates(deps.conn, period, season_id, race.section_index)
+    rows = stats.rate(aggregates, deps.settings.miss_penalty, mode)
+    return formatters.rating(rows, period, mode), keyboards.rating(period, mode)
+
+
+async def _render_discipline(deps: Deps, period: Period) -> Rendered:
+    race, season_id = await _race(deps)
+    aggregates = await player_aggregates(deps.conn, period, season_id, race.section_index)
+    rows = stats.discipline(aggregates)
+    return formatters.discipline(rows, period), keyboards.discipline(period)
+
+
+async def _render_player(deps: Deps, player_tag: str, period: Period, owner_id: int) -> Rendered:
+    race, season_id = await _race(deps)
+    aggregates = await player_aggregates(
+        deps.conn, period, season_id, race.section_index, only_current=False
+    )
+    agg = next((a for a in aggregates if a.player_tag == player_tag), None)
+    return formatters.player_stats(agg, period), keyboards.player_stats(period, owner_id)
+
+
+async def _render_roster(deps: Deps) -> Rendered:
+    roster = await queries.get_roster(deps.conn)
+    links = await queries.get_links_by_tag(deps.conn)
+    linked = [(c.name, links[c.player_tag]) for c in roster if c.player_tag in links]
+    unlinked = [c.name for c in roster if c.player_tag not in links]
+    return formatters.roster(linked, unlinked), keyboards.plain()
+
+
+# --- commands -----------------------------------------------------------------
+
+
 @router.message(Command("start", "help"))
 async def cmd_help(message: Message) -> None:
-    await message.answer(formatters.HELP, parse_mode="HTML")
+    await message.answer(formatters.HELP, parse_mode="HTML", reply_markup=keyboards.main_menu())
+
+
+@router.message(Command("menu"))
+async def cmd_menu(message: Message) -> None:
+    await message.answer(formatters.MENU, parse_mode="HTML", reply_markup=keyboards.main_menu())
 
 
 @router.message(Command("link"))
@@ -130,8 +207,9 @@ async def cb_link(callback: CallbackQuery, deps: Deps) -> None:
         callback.from_user.username,
         callback.from_user.full_name,
     )
-    if isinstance(callback.message, Message):
-        await callback.message.edit_text(
+    edit = getattr(callback.message, "edit_text", None)
+    if edit is not None:
+        await edit(
             f"Привязано: {escape(candidate.name)} ({escape(candidate.player_tag)})",
             parse_mode="HTML",
         )
@@ -150,42 +228,21 @@ async def cmd_whoami(message: Message, deps: Deps) -> None:
     assert message.from_user is not None
     link = await queries.get_link_by_user(deps.conn, message.from_user.id)
     if link is None:
-        await message.answer("Ты не привязан. <code>/link ник</code>", parse_mode="HTML")
+        await message.answer(NOT_LINKED, parse_mode="HTML")
         return
     names = await queries.get_member_names(deps.conn)
     name = names.get(link.player_tag, link.player_tag)
-    await message.answer(
-        f"Ты — {escape(name)} ({escape(link.player_tag)})", parse_mode="HTML"
-    )
+    await message.answer(f"Ты — {escape(name)} ({escape(link.player_tag)})", parse_mode="HTML")
 
 
 @router.message(Command("today"))
 async def cmd_today(message: Message, deps: Deps) -> None:
-    race, _ = await _race(deps)
-    debtors, total = await build_debtors(deps.conn, race)
-    await message.answer(
-        formatters.today(
-            debtors, total, race.period_type, finished=race.clan.finish_time is not None
-        ),
-        parse_mode="HTML",
-    )
+    await _reply(message, await _render_today(deps))
 
 
 @router.message(Command("war"))
 async def cmd_war(message: Message, deps: Deps) -> None:
-    race, _ = await _race(deps)
-    names = await queries.get_member_names(deps.conn)
-    current = {c.player_tag for c in await queries.get_roster(deps.conn)}
-    rows = sorted(
-        (
-            (p.name or names.get(p.tag, p.tag), p.fame, p.decks_used)
-            for p in race.clan.participants
-            # Departed players stay listed if they scored, drop out if they did not.
-            if p.tag in current or p.fame > 0
-        ),
-        key=lambda r: (-r[1], r[0].lower()),
-    )
-    await message.answer(formatters.war_overview(rows, race.clan.fame), parse_mode="HTML")
+    await _reply(message, await _render_war(deps))
 
 
 @router.message(Command("rating"))
@@ -195,11 +252,7 @@ async def cmd_rating(message: Message, command: CommandObject, deps: Deps) -> No
     except PeriodParseError:
         await message.answer(PERIOD_HELP, parse_mode="HTML")
         return
-
-    race, season_id = await _race(deps)
-    aggregates = await player_aggregates(deps.conn, period, season_id, race.section_index)
-    rows = stats.rate(aggregates, deps.settings.miss_penalty, mode)
-    await message.answer(formatters.rating(rows, period, mode), parse_mode="HTML")
+    await _reply(message, await _render_rating(deps, period, mode))
 
 
 @router.message(Command("discipline"))
@@ -209,11 +262,7 @@ async def cmd_discipline(message: Message, command: CommandObject, deps: Deps) -
     except PeriodParseError:
         await message.answer(PERIOD_HELP, parse_mode="HTML")
         return
-
-    race, season_id = await _race(deps)
-    aggregates = await player_aggregates(deps.conn, period, season_id, race.section_index)
-    rows = stats.discipline(aggregates)
-    await message.answer(formatters.discipline(rows, period), parse_mode="HTML")
+    await _reply(message, await _render_discipline(deps, period))
 
 
 @router.message(Command("me"))
@@ -221,15 +270,21 @@ async def cmd_me(message: Message, command: CommandObject, deps: Deps) -> None:
     assert message.from_user is not None
     link = await queries.get_link_by_user(deps.conn, message.from_user.id)
     if link is None:
-        await message.answer(
-            "Сначала привяжись: <code>/link ник</code>", parse_mode="HTML"
-        )
+        await message.answer(NOT_LINKED, parse_mode="HTML")
         return
-    await _answer_player_stats(message, deps, link.player_tag, command.args)
+    try:
+        period, _ = _split_period(command.args)
+    except PeriodParseError:
+        await message.answer(PERIOD_HELP, parse_mode="HTML")
+        return
+    await _reply(
+        message, await _render_player(deps, link.player_tag, period, message.from_user.id)
+    )
 
 
 @router.message(Command("stats"))
 async def cmd_stats(message: Message, command: CommandObject, deps: Deps) -> None:
+    assert message.from_user is not None
     tokens = (command.args or "").split()
     if not tokens:
         await message.answer("Как пользоваться: <code>/stats ник</code>", parse_mode="HTML")
@@ -245,30 +300,99 @@ async def cmd_stats(message: Message, command: CommandObject, deps: Deps) -> Non
         await message.answer(f"Уточни, кто именно: {listed}", parse_mode="HTML")
         return
 
-    await _answer_player_stats(message, deps, hits[0].player_tag, " ".join(tokens[1:]))
-
-
-async def _answer_player_stats(
-    message: Message, deps: Deps, player_tag: str, args: str | None
-) -> None:
     try:
-        period, _ = _split_period(args)
+        period, _ = _split_period(" ".join(tokens[1:]))
     except PeriodParseError:
         await message.answer(PERIOD_HELP, parse_mode="HTML")
         return
 
-    race, season_id = await _race(deps)
-    aggregates = await player_aggregates(
-        deps.conn, period, season_id, race.section_index, only_current=False
-    )
-    agg = next((a for a in aggregates if a.player_tag == player_tag), None)
-    await message.answer(formatters.player_stats(agg, period), parse_mode="HTML")
+    text, _ = await _render_player(deps, hits[0].player_tag, period, message.from_user.id)
+    await message.answer(text, parse_mode="HTML")
 
 
 @router.message(Command("roster"))
 async def cmd_roster(message: Message, deps: Deps) -> None:
-    roster = await queries.get_roster(deps.conn)
-    links = await queries.get_links_by_tag(deps.conn)
-    linked = [(c.name, links[c.player_tag]) for c in roster if c.player_tag in links]
-    unlinked = [c.name for c in roster if c.player_tag not in links]
-    await message.answer(formatters.roster(linked, unlinked), parse_mode="HTML")
+    await _reply(message, await _render_roster(deps))
+
+
+async def _reply(message: Message, rendered: Rendered) -> None:
+    text, markup = rendered
+    await message.answer(text, parse_mode="HTML", reply_markup=markup)
+
+
+# --- inline menu --------------------------------------------------------------
+
+
+@router.callback_query(lambda c: c.data and c.data.startswith(f"{keyboards.PREFIX}:"))
+async def cb_menu(callback: CallbackQuery, deps: Deps) -> None:
+    assert callback.data is not None
+    parsed = keyboards.parse_callback(callback.data)
+    if parsed is None:
+        await callback.answer()
+        return
+
+    action, args = parsed
+    period = parse_period(args[0]) if args else parse_period(None)
+
+    if action == "menu":
+        rendered: Rendered = (formatters.MENU, keyboards.main_menu())
+    elif action == "help":
+        rendered = (formatters.HELP, keyboards.plain())
+    elif action == "today":
+        rendered = await _render_today(deps)
+    elif action == "war":
+        rendered = await _render_war(deps)
+    elif action == "rating":
+        rendered = await _render_rating(deps, period, args[1] if len(args) > 1 else "avg")
+    elif action == "disc":
+        rendered = await _render_discipline(deps, period)
+    elif action == "roster":
+        rendered = await _render_roster(deps)
+    elif action == "me":
+        await _answer_me(callback, deps, period, args)
+        return
+    else:
+        await callback.answer()
+        return
+
+    await _edit(callback, rendered)
+
+
+async def _answer_me(
+    callback: CallbackQuery, deps: Deps, period: Period, args: list[str]
+) -> None:
+    """Personal stats: a fresh message per person, buttons usable only by them."""
+    owner_id = int(args[1]) if len(args) > 1 else callback.from_user.id
+    if len(args) > 1 and owner_id != callback.from_user.id:
+        await callback.answer("Это чужая статистика, нажми «Моя статистика»", show_alert=True)
+        return
+
+    link = await queries.get_link_by_user(deps.conn, callback.from_user.id)
+    if link is None:
+        await callback.answer("Сначала привяжись: /link ник", show_alert=True)
+        return
+
+    text, markup = await _render_player(deps, link.player_tag, period, callback.from_user.id)
+    if len(args) > 1:
+        await _edit(callback, (text, markup))
+        return
+
+    answer = getattr(callback.message, "answer", None)
+    if answer is not None:
+        await answer(text, parse_mode="HTML", reply_markup=markup)
+    await callback.answer()
+
+
+async def _edit(callback: CallbackQuery, rendered: Rendered) -> None:
+    text, markup = rendered
+    edit = getattr(callback.message, "edit_text", None)
+    if edit is None:
+        await callback.answer()
+        return
+    try:
+        await edit(text, parse_mode="HTML", reply_markup=markup)
+    except TelegramBadRequest as exc:
+        # Pressing the already-selected button changes nothing; that is not an error.
+        if "message is not modified" not in str(exc):
+            raise
+    await callback.answer()
