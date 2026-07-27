@@ -173,6 +173,112 @@ async def test_owner_switching_period_edits_in_place(conn, deps):
     assert callback.message.answers == []
 
 
+async def test_menu_offers_a_way_to_link_and_unlink(conn):
+    labels = buttons(keyboards.main_menu())
+    assert "Привязаться" in labels
+    assert "Отвязаться" in labels
+
+
+async def test_picker_lists_only_unclaimed_nicks(conn, deps):
+    await seed(conn)
+    await queries.upsert_link(conn, USER.id, "#P1", "vasya", "Вася")
+    callback = FakeCallback("m:pick:0")
+
+    await handlers.cb_menu(callback, deps)
+
+    labels = buttons(callback.message.markup)
+    assert "Kolya" in labels
+    assert "Vasya" not in labels
+
+
+async def test_picking_a_nick_links_whoever_pressed(conn, deps):
+    await seed(conn)
+    callback = FakeCallback("m:linkto:#P2", user=OTHER)
+
+    await handlers.cb_menu(callback, deps)
+
+    link = await queries.get_link_by_user(conn, OTHER.id)
+    assert link.player_tag == "#P2"
+    assert "Привязано: Kolya" in callback.message.text
+
+
+async def test_nick_claimed_meanwhile_is_refused(conn, deps):
+    # The page was rendered before someone else took the nick.
+    await seed(conn)
+    await queries.upsert_link(conn, USER.id, "#P1", "vasya", "Вася")
+    callback = FakeCallback("m:linkto:#P1", user=OTHER)
+
+    await handlers.cb_menu(callback, deps)
+
+    assert "уже занят" in callback.alerts[0]
+    assert await queries.get_link_by_user(conn, OTHER.id) is None
+
+
+async def test_relinking_your_own_nick_is_allowed(conn, deps):
+    await seed(conn)
+    await queries.upsert_link(conn, USER.id, "#P1", "vasya", "Вася")
+    callback = FakeCallback("m:linkto:#P1", user=USER)
+
+    await handlers.cb_menu(callback, deps)
+
+    assert "Привязано" in callback.message.text
+
+
+async def test_unlink_button_clears_the_link(conn, deps):
+    await seed(conn)
+    await queries.upsert_link(conn, USER.id, "#P1", "vasya", "Вася")
+    callback = FakeCallback("m:unlink")
+
+    await handlers.cb_menu(callback, deps)
+
+    assert await queries.get_link_by_user(conn, USER.id) is None
+    assert "снята" in callback.message.text
+
+
+async def test_unlink_without_a_link_says_so(conn, deps):
+    await seed(conn)
+    callback = FakeCallback("m:unlink")
+
+    await handlers.cb_menu(callback, deps)
+
+    assert "не было привязки" in callback.alerts[0]
+
+
+async def test_long_roster_is_paged(conn, deps):
+    await queries.ensure_historical_members(
+        conn, [(f"#T{i}", f"Player{i:02d}") for i in range(40)]
+    )
+    await conn.execute("UPDATE members SET in_clan = 1")
+    await conn.commit()
+    callback = FakeCallback("m:pick:0")
+
+    await handlers.cb_menu(callback, deps)
+
+    labels = buttons(callback.message.markup)
+    assert "1/3" in labels
+    assert sum(1 for label in labels if label.startswith("Player")) == 16
+
+
+async def test_page_beyond_the_end_is_clamped(conn, deps):
+    await seed(conn)
+    callback = FakeCallback("m:pick:99")
+
+    await handlers.cb_menu(callback, deps)
+
+    assert "Выбери свой игровой ник" in callback.message.text
+
+
+async def test_picker_when_everyone_is_linked(conn, deps):
+    await seed(conn)
+    await queries.upsert_link(conn, USER.id, "#P1", "vasya", "Вася")
+    await queries.upsert_link(conn, OTHER.id, "#P2", "kolya", "Коля")
+    callback = FakeCallback("m:pick:0")
+
+    await handlers.cb_menu(callback, deps)
+
+    assert "уже привязаны" in callback.message.text
+
+
 async def test_pressing_the_active_button_is_not_an_error(conn, deps):
     await seed(conn)
     callback = FakeCallback("m:war", message=FakeMessage(raise_not_modified=True))

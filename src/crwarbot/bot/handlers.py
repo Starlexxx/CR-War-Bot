@@ -35,7 +35,7 @@ PERIOD_HELP = (
     "Период: <code>war</code>, <code>season</code>, <code>all</code> "
     "или <code>2026-01-01..2026-03-01</code>"
 )
-NOT_LINKED = "Ты не привязан. Нажми «Привязки» или напиши <code>/link ник</code>"
+NOT_LINKED = "Ты не привязан. Нажми «Привязаться» в /menu или напиши <code>/link ник</code>"
 
 
 @dataclass
@@ -114,6 +114,19 @@ async def _render_player(deps: Deps, player_tag: str, period: Period, owner_id: 
     )
     agg = next((a for a in aggregates if a.player_tag == player_tag), None)
     return formatters.player_stats(agg, period), keyboards.player_stats(period, owner_id)
+
+
+async def _render_link_picker(deps: Deps, page: int) -> Rendered:
+    """Only unclaimed nicknames are offered, so nobody can take another's."""
+    roster = await queries.get_roster(deps.conn)
+    links = await queries.get_links_by_tag(deps.conn)
+    free = [c for c in roster if c.player_tag not in links]
+
+    if not free:
+        return "Все ники клана уже привязаны. Освободить свой — «Отвязаться».", keyboards.plain()
+
+    page = max(0, min(page, keyboards.pages(len(free)) - 1))
+    return "Выбери свой игровой ник:", keyboards.link_picker(free, page)
 
 
 async def _render_roster(deps: Deps) -> Rendered:
@@ -332,6 +345,18 @@ async def cb_menu(callback: CallbackQuery, deps: Deps) -> None:
         return
 
     action, args = parsed
+
+    if action == "linkto":
+        await _link_from_menu(callback, deps, args[0])
+        return
+    if action == "unlink":
+        await _unlink_from_menu(callback, deps)
+        return
+    if action == "pick":
+        await _edit(callback, await _render_link_picker(deps, int(args[0]) if args else 0))
+        return
+
+    # Everything below is a statistics view keyed by a period.
     period = parse_period(args[0]) if args else parse_period(None)
 
     if action == "menu":
@@ -358,6 +383,40 @@ async def cb_menu(callback: CallbackQuery, deps: Deps) -> None:
     await _edit(callback, rendered)
 
 
+async def _link_from_menu(callback: CallbackQuery, deps: Deps, player_tag: str) -> None:
+    roster = await queries.get_roster(deps.conn)
+    candidate = next((c for c in roster if c.player_tag == player_tag), None)
+    if candidate is None:
+        await callback.answer("Игрока больше нет в клане", show_alert=True)
+        return
+
+    links = await queries.get_links_by_tag(deps.conn)
+    taken = links.get(player_tag)
+    if taken is not None and taken.tg_user_id != callback.from_user.id:
+        # Someone claimed it between rendering the page and the tap.
+        await callback.answer("Этот ник уже занят", show_alert=True)
+        await _edit(callback, await _render_link_picker(deps, 0))
+        return
+
+    user = callback.from_user
+    await queries.upsert_link(deps.conn, user.id, player_tag, user.username, user.full_name)
+    await _edit(
+        callback,
+        (
+            f"Привязано: {escape(candidate.name)} ({escape(player_tag)})",
+            keyboards.plain(),
+        ),
+    )
+
+
+async def _unlink_from_menu(callback: CallbackQuery, deps: Deps) -> None:
+    removed = await queries.delete_link(deps.conn, callback.from_user.id)
+    if not removed:
+        await callback.answer("У тебя не было привязки", show_alert=True)
+        return
+    await _edit(callback, ("Привязка снята.", keyboards.plain()))
+
+
 async def _answer_me(
     callback: CallbackQuery, deps: Deps, period: Period, args: list[str]
 ) -> None:
@@ -369,7 +428,7 @@ async def _answer_me(
 
     link = await queries.get_link_by_user(deps.conn, callback.from_user.id)
     if link is None:
-        await callback.answer("Сначала привяжись: /link ник", show_alert=True)
+        await callback.answer("Сначала привяжись: кнопка «Привязаться»", show_alert=True)
         return
 
     text, markup = await _render_player(deps, link.player_tag, period, callback.from_user.id)

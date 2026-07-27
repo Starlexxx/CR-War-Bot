@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
+from crwarbot.domain.matching import Candidate
 from crwarbot.domain.periods import Period
 
 PREFIX = "m"
@@ -42,6 +45,10 @@ def main_menu() -> InlineKeyboardMarkup:
             [
                 InlineKeyboardButton(text="Моя статистика", callback_data=_cb("me", "war")),
                 InlineKeyboardButton(text="Привязки", callback_data=_cb("roster")),
+            ],
+            [
+                InlineKeyboardButton(text="Привязаться", callback_data=_cb("pick", 0)),
+                InlineKeyboardButton(text="Отвязаться", callback_data=_cb("unlink")),
             ],
             [InlineKeyboardButton(text="Помощь", callback_data=_cb("help"))],
         ]
@@ -89,3 +96,39 @@ def player_stats(period: Period, owner_id: int) -> InlineKeyboardMarkup:
 
 def plain() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[_back_row()])
+
+
+PICK_PAGE_SIZE = 16
+
+
+def pages(total: int) -> int:
+    return max(1, -(-total // PICK_PAGE_SIZE))
+
+
+def link_picker(candidates: Sequence[Candidate], page: int) -> InlineKeyboardMarkup:
+    """Nicknames to claim, two per row, paged so a 50-man clan still fits."""
+    start = page * PICK_PAGE_SIZE
+    chunk = candidates[start : start + PICK_PAGE_SIZE]
+
+    rows = [
+        [
+            InlineKeyboardButton(text=c.name, callback_data=_cb("linkto", c.player_tag))
+            for c in chunk[i : i + 2]
+        ]
+        for i in range(0, len(chunk), 2)
+    ]
+
+    total = pages(len(candidates))
+    if total > 1:
+        nav = []
+        if page > 0:
+            nav.append(InlineKeyboardButton(text="‹", callback_data=_cb("pick", page - 1)))
+        nav.append(
+            InlineKeyboardButton(text=f"{page + 1}/{total}", callback_data=_cb("pick", page))
+        )
+        if page + 1 < total:
+            nav.append(InlineKeyboardButton(text="›", callback_data=_cb("pick", page + 1)))
+        rows.append(nav)
+
+    rows.append(_back_row())
+    return InlineKeyboardMarkup(inline_keyboard=rows)
