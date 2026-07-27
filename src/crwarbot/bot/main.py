@@ -8,6 +8,7 @@ from aiogram.client.session.aiohttp import AiohttpSession
 
 from crwarbot.api.client import SupercellClient
 from crwarbot.api.rate_limiter import RateLimiter
+from crwarbot.bot.access import AccessMiddleware
 from crwarbot.bot.handlers import Deps, router
 from crwarbot.config import get_settings
 from crwarbot.db.connection import apply_migrations, connect
@@ -38,6 +39,9 @@ async def main() -> None:
     poller = Poller(conn, client, bot, settings)
 
     dispatcher = Dispatcher()
+    access = AccessMiddleware(settings.telegram_chat_id)
+    dispatcher.message.middleware(access)
+    dispatcher.callback_query.middleware(access)
     dispatcher.include_router(router)
     dispatcher["deps"] = Deps(conn=conn, client=client, settings=settings, poller=poller)
 
