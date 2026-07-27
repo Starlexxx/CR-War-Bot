@@ -9,6 +9,7 @@ from aiogram.client.session.aiohttp import AiohttpSession
 from crwarbot.api.client import SupercellClient
 from crwarbot.api.rate_limiter import RateLimiter
 from crwarbot.bot.access import AccessMiddleware
+from crwarbot.bot.chat import ChatTarget
 from crwarbot.bot.handlers import Deps, router
 from crwarbot.config import get_settings
 from crwarbot.db.connection import apply_migrations, connect
@@ -36,10 +37,11 @@ async def main() -> None:
     if session is not None:
         log.info("routing Telegram through a proxy")
     bot = Bot(token=settings.telegram_bot_token, session=session)
-    poller = Poller(conn, client, bot, settings)
+    target = ChatTarget(conn, settings.telegram_chat_id)
+    poller = Poller(conn, client, bot, settings, target)
 
     dispatcher = Dispatcher()
-    access = AccessMiddleware(settings.telegram_chat_id)
+    access = AccessMiddleware(target)
     dispatcher.message.middleware(access)
     dispatcher.callback_query.middleware(access)
     dispatcher.include_router(router)

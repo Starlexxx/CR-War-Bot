@@ -11,6 +11,7 @@ from aiogram import Bot
 
 from crwarbot.api.client import SupercellClient
 from crwarbot.api.models import CurrentRiverRace
+from crwarbot.bot.chat import ChatTarget
 from crwarbot.config import Settings
 from crwarbot.db import queries
 from crwarbot.domain.aggregate import compute_day_results
@@ -45,11 +46,13 @@ class Poller:
         client: SupercellClient,
         bot: Bot,
         settings: Settings,
+        target: ChatTarget | None = None,
     ) -> None:
         self._conn = conn
         self._client = client
         self._bot = bot
         self._settings = settings
+        self._target = target or ChatTarget(conn, settings.telegram_chat_id)
         self._last_roster = 0.0
         self._last_backfill = 0.0
         self._state: RaceState | None = None
@@ -121,7 +124,7 @@ class Poller:
         await check_and_send(
             self._bot,
             self._conn,
-            self._settings.telegram_chat_id,
+            self._target,
             race,
             season_id,
             self._settings.reminder_grace_minutes,

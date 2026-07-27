@@ -1,6 +1,9 @@
 from types import SimpleNamespace
 
+import pytest_asyncio
+
 from crwarbot.bot.access import DENIED_TEXT, AccessMiddleware
+from crwarbot.bot.chat import ChatTarget
 
 CLAN_CHAT = -1001234567890
 OTHER_CHAT = -111
@@ -41,6 +44,11 @@ class FakeCallback:
         self.answers.append(text)
 
 
+@pytest_asyncio.fixture
+def mw(conn):
+    return AccessMiddleware(ChatTarget(conn, CLAN_CHAT))
+
+
 async def run(mw, event, bot):
     seen = []
 
@@ -52,8 +60,7 @@ async def run(mw, event, bot):
     return result, seen
 
 
-async def test_clan_member_is_served_in_dm():
-    mw = AccessMiddleware(CLAN_CHAT)
+async def test_clan_member_is_served_in_dm(mw):
     bot = FakeBot({7: "member"})
     msg = FakeMessage(7, 7, "private")
 
@@ -63,8 +70,7 @@ async def test_clan_member_is_served_in_dm():
     assert len(seen) == 1
 
 
-async def test_stranger_is_refused_in_dm():
-    mw = AccessMiddleware(CLAN_CHAT)
+async def test_stranger_is_refused_in_dm(mw):
     bot = FakeBot({7: "left"})
     msg = FakeMessage(7, 7, "private")
 
@@ -75,9 +81,8 @@ async def test_stranger_is_refused_in_dm():
     assert msg.replies == [DENIED_TEXT]
 
 
-async def test_unknown_user_is_refused():
+async def test_unknown_user_is_refused(mw):
     # getChatMember raises for someone who was never in the chat.
-    mw = AccessMiddleware(CLAN_CHAT)
     bot = FakeBot({})
     msg = FakeMessage(99, 99, "private")
 
@@ -87,8 +92,7 @@ async def test_unknown_user_is_refused():
     assert msg.replies == [DENIED_TEXT]
 
 
-async def test_banned_user_is_refused():
-    mw = AccessMiddleware(CLAN_CHAT)
+async def test_banned_user_is_refused(mw):
     bot = FakeBot({7: "kicked"})
     msg = FakeMessage(7, 7, "private")
 
@@ -96,8 +100,7 @@ async def test_banned_user_is_refused():
     assert result is None
 
 
-async def test_restricted_but_still_in_chat_is_served():
-    mw = AccessMiddleware(CLAN_CHAT)
+async def test_restricted_but_still_in_chat_is_served(mw):
     bot = FakeBot({7: ("restricted", True)})
     msg = FakeMessage(7, 7, "private")
 
@@ -105,8 +108,7 @@ async def test_restricted_but_still_in_chat_is_served():
     assert result == "handled"
 
 
-async def test_restricted_and_gone_is_refused():
-    mw = AccessMiddleware(CLAN_CHAT)
+async def test_restricted_and_gone_is_refused(mw):
     bot = FakeBot({7: ("restricted", False)})
     msg = FakeMessage(7, 7, "private")
 
@@ -114,8 +116,7 @@ async def test_restricted_and_gone_is_refused():
     assert result is None
 
 
-async def test_clan_group_needs_no_per_user_lookup():
-    mw = AccessMiddleware(CLAN_CHAT)
+async def test_clan_group_needs_no_per_user_lookup(mw):
     bot = FakeBot({})
     msg = FakeMessage(7, CLAN_CHAT, "supergroup")
 
@@ -125,8 +126,7 @@ async def test_clan_group_needs_no_per_user_lookup():
     assert bot.calls == 0
 
 
-async def test_foreign_group_is_ignored_silently():
-    mw = AccessMiddleware(CLAN_CHAT)
+async def test_foreign_group_is_ignored_silently(mw):
     bot = FakeBot({7: "member"})
     msg = FakeMessage(7, OTHER_CHAT, "supergroup")
 
@@ -137,8 +137,7 @@ async def test_foreign_group_is_ignored_silently():
     assert msg.replies == []
 
 
-async def test_membership_is_cached():
-    mw = AccessMiddleware(CLAN_CHAT)
+async def test_membership_is_cached(mw):
     bot = FakeBot({7: "member"})
 
     await run(mw, FakeMessage(7, 7, "private"), bot)
@@ -147,8 +146,7 @@ async def test_membership_is_cached():
     assert bot.calls == 1
 
 
-async def test_callback_from_stranger_gets_an_alert():
-    mw = AccessMiddleware(CLAN_CHAT)
+async def test_callback_from_stranger_gets_an_alert(mw):
     bot = FakeBot({7: "left"})
     callback = FakeCallback(7, FakeMessage(7, 7, "private"))
 

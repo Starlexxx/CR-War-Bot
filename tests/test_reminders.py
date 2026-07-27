@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 import pytest
 
 from crwarbot.api.models import CurrentRiverRace
+from crwarbot.bot.chat import ChatTarget
 from crwarbot.db import queries
 from crwarbot.domain.periods import parse_reset_time
 from crwarbot.worker.reminders import check_and_send
@@ -37,7 +38,7 @@ async def seed_roster(conn, members):
 
 async def send(bot, conn, r, now=AT_T16):
     return await check_and_send(
-        bot, conn, CHAT, r, 58, grace_minutes=30, reset=RESET, now=now
+        bot, conn, ChatTarget(conn, CHAT), r, 58, grace_minutes=30, reset=RESET, now=now
     )
 
 

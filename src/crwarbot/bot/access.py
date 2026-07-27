@@ -8,6 +8,8 @@ from typing import Any
 from aiogram import BaseMiddleware
 from aiogram.types import TelegramObject
 
+from crwarbot.bot.chat import ChatTarget
+
 log = logging.getLogger(__name__)
 
 MEMBER_STATUSES = frozenset({"creator", "administrator", "member", "restricted"})
@@ -27,8 +29,8 @@ class AccessMiddleware(BaseMiddleware):
     not stay locked out for ten minutes.
     """
 
-    def __init__(self, chat_id: int) -> None:
-        self._chat_id = chat_id
+    def __init__(self, target: ChatTarget) -> None:
+        self._target = target
         self._cache: dict[int, tuple[bool, float]] = {}
 
     async def __call__(
@@ -43,8 +45,11 @@ class AccessMiddleware(BaseMiddleware):
         if chat is None:
             chat = getattr(getattr(event, "message", None), "chat", None)
 
+        if await self._target.note_service_message(event):
+            return None
+
         if chat is not None and chat.type in ("group", "supergroup"):
-            if chat.id != self._chat_id:
+            if chat.id != await self._target.get():
                 # Someone dragged the bot into an unrelated group.
                 return None
             return await handler(event, data)
@@ -72,7 +77,9 @@ class AccessMiddleware(BaseMiddleware):
             return cached[0]
 
         try:
-            member = await bot.get_chat_member(self._chat_id, user_id)
+            member = await self._target.call(
+                lambda chat_id: bot.get_chat_member(chat_id, user_id)
+            )
             allowed = member.status in MEMBER_STATUSES
             if member.status == "restricted":
                 allowed = bool(getattr(member, "is_member", False))

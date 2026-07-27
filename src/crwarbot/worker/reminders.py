@@ -8,6 +8,7 @@ from aiogram import Bot
 
 from crwarbot.api.models import CurrentRiverRace
 from crwarbot.bot import formatters
+from crwarbot.bot.chat import ChatTarget
 from crwarbot.db import queries
 from crwarbot.domain.periods import WAR_PERIOD_TYPES, daily_reset_after, due_reminders
 from crwarbot.service import build_debtors
@@ -18,7 +19,7 @@ log = logging.getLogger(__name__)
 async def check_and_send(
     bot: Bot,
     conn: aiosqlite.Connection,
-    chat_id: int,
+    target: ChatTarget,
     race: CurrentRiverRace,
     season_id: int,
     grace_minutes: int,
@@ -46,13 +47,15 @@ async def check_and_send(
     sent = []
     for kind in due:
         text = formatters.reminder(kind, debtors)
-        await bot.send_message(chat_id, text, parse_mode="HTML")
+        await target.call(
+            lambda chat_id, text=text: bot.send_message(chat_id, text, parse_mode="HTML")
+        )
         # Recorded only after Telegram accepted the message, so a network
         # failure retries on the next tick instead of silently skipping the day.
         await queries.mark_reminder_sent(
             conn, season_id, race.section_index, race.period_index, kind
         )
         sent.append(kind)
-        log.info("sent reminder %s to %s (%d debtors)", kind, chat_id, len(debtors))
+        log.info("sent reminder %s (%d debtors)", kind, len(debtors))
 
     return sent
