@@ -6,7 +6,7 @@ from aiogram.exceptions import TelegramMigrateToChat
 from crwarbot.bot.access import DENIED_TEXT, AccessMiddleware
 from crwarbot.bot.chat import ChatTarget
 
-OLD_CHAT = -1001234567890
+OLD_CHAT = -900100200
 NEW_CHAT = -1009876543210
 
 

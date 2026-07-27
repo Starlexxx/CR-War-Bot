@@ -2,7 +2,7 @@
 # Push the working tree to the server and restart. Run from the repo root.
 set -euo pipefail
 
-HOST="${CRWARBOT_HOST:-user@host}"
+HOST="${CRWARBOT_HOST:?set CRWARBOT_HOST=user@host}"
 STAGE=/tmp/crwarbot-src
 TARGET=/opt/crwarbot
 

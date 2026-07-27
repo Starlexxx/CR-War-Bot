@@ -9,7 +9,7 @@ from crwarbot.domain.periods import parse_reset_time
 from crwarbot.worker.reminders import check_and_send
 from tests.conftest import participant, race_payload
 
-CHAT = -100500
+CHAT = -1001234567890
 RESET = parse_reset_time("10:15")
 DAY_END = datetime(2026, 7, 26, 10, 15, tzinfo=UTC)
 AT_T16 = datetime(2026, 7, 25, 18, 15, tzinfo=UTC)

@@ -1,24 +1,27 @@
 # Deploy
 
-Live at `<bot-host>:/opt/crwarbot`, service `crwarbot`. Push changes with
-`./deploy/sync.sh` from the repo root.
+Runs under systemd at `/opt/crwarbot`, service `crwarbot`. Push changes with
+`CRWARBOT_HOST=user@host ./deploy/sync.sh` from the repo root.
 
 The Supercell API token is bound to the IP address that requests it, so generate
 the token on developer.clashroyale.com **from the server's IP**, not from your
 laptop.
 
-## Telegram is blocked on this host
+## When Telegram is unreachable from the server
 
-`api.telegram.org` times out on TCP 443 from `<bot-host>` while
-`api.clashroyale.com` is reachable. A SOCKS5 relay (dante) runs on
-`<proxy-host>:<port>`, configured in `/etc/danted.conf` to accept only this
-host, and `TELEGRAM_PROXY` points the bot at it. Clash Royale traffic
-deliberately does not use the proxy — its token is pinned to the bot host's IP.
+Some hosting providers can reach `api.clashroyale.com` fine while
+`api.telegram.org` times out on TCP 443. The bot then looks like it has a bad
+token: it starts, polls Clash Royale, and never receives an update.
 
-Check the relay with:
+Set `TELEGRAM_PROXY` to a SOCKS5 relay on a host that does have access, for
+example a dante `sockd` locked down in `/etc/danted.conf` to the bot's IP plus a
+username. Leave Clash Royale traffic direct — its token is pinned to the bot
+host's own IP, so proxying it breaks authentication.
+
+Check the relay before blaming the bot:
 
 ```bash
-curl -s --socks5-hostname 'USER:PASS@<proxy-host>:<port>' \
+curl -s --socks5-hostname 'USER:PASS@PROXY_HOST:PORT' \
      -o /dev/null -w '%{http_code}\n' https://api.telegram.org
 ```
 
