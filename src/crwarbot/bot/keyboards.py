@@ -98,6 +98,20 @@ def plain() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[_back_row()])
 
 
+def unlink_picker(accounts: Sequence[tuple[str, str]]) -> InlineKeyboardMarkup:
+    """Own accounts as (name, tag), two per row. Nobody has enough to need paging."""
+    rows = [
+        [
+            InlineKeyboardButton(text=name, callback_data=_cb("unlinkone", tag))
+            for name, tag in accounts[i : i + 2]
+        ]
+        for i in range(0, len(accounts), 2)
+    ]
+    rows.append([InlineKeyboardButton(text="Отвязать все", callback_data=_cb("unlinkall"))])
+    rows.append(_back_row())
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
 PICK_PAGE_SIZE = 16
 
 

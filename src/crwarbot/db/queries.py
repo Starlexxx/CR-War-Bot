@@ -123,28 +123,40 @@ async def upsert_link(
     tg_username: str | None,
     tg_full_name: str | None,
 ) -> None:
-    await conn.execute("DELETE FROM links WHERE player_tag = ?", (player_tag,))
     await conn.execute(
         "INSERT INTO links (tg_user_id, player_tag, tg_username, tg_full_name, linked_at) "
         "VALUES (?, ?, ?, ?, ?) "
-        "ON CONFLICT(tg_user_id) DO UPDATE SET "
-        "  player_tag = excluded.player_tag, tg_username = excluded.tg_username, "
+        "ON CONFLICT(player_tag) DO UPDATE SET "
+        "  tg_user_id = excluded.tg_user_id, tg_username = excluded.tg_username, "
         "  tg_full_name = excluded.tg_full_name, linked_at = excluded.linked_at",
         (tg_user_id, player_tag, tg_username, tg_full_name, _now()),
     )
     await conn.commit()
 
 
-async def delete_link(conn: aiosqlite.Connection, tg_user_id: int) -> bool:
-    cur = await conn.execute("DELETE FROM links WHERE tg_user_id = ?", (tg_user_id,))
+async def delete_link(conn: aiosqlite.Connection, tg_user_id: int, player_tag: str) -> bool:
+    cur = await conn.execute(
+        "DELETE FROM links WHERE tg_user_id = ? AND player_tag = ?", (tg_user_id, player_tag)
+    )
     await conn.commit()
     return cur.rowcount > 0
 
 
-async def get_link_by_user(conn: aiosqlite.Connection, tg_user_id: int) -> Link | None:
-    async with conn.execute("SELECT * FROM links WHERE tg_user_id = ?", (tg_user_id,)) as cur:
-        row = await cur.fetchone()
-    return _link(row) if row else None
+async def delete_all_links(conn: aiosqlite.Connection, tg_user_id: int) -> int:
+    cur = await conn.execute("DELETE FROM links WHERE tg_user_id = ?", (tg_user_id,))
+    await conn.commit()
+    return cur.rowcount
+
+
+async def get_links_by_user(conn: aiosqlite.Connection, tg_user_id: int) -> list[Link]:
+    """Every game account this person claimed, ordered the way menus list them."""
+    async with conn.execute(
+        "SELECT l.* FROM links l LEFT JOIN members m ON m.player_tag = l.player_tag "
+        "WHERE l.tg_user_id = ? ORDER BY m.name COLLATE NOCASE, l.player_tag",
+        (tg_user_id,),
+    ) as cur:
+        rows = await cur.fetchall()
+    return [_link(r) for r in rows]
 
 
 async def get_links_by_tag(conn: aiosqlite.Connection) -> dict[str, Link]:

@@ -52,8 +52,8 @@ async def test_link_matches_a_single_roster_entry(conn, deps):
     await handlers.cmd_link(msg, cmd("vasya"), deps)
 
     assert "Привязано" in msg.replies[0]
-    link = await queries.get_link_by_user(conn, 42)
-    assert link.player_tag == "#P1"
+    links = await queries.get_links_by_user(conn, 42)
+    assert [link.player_tag for link in links] == ["#P1"]
 
 
 async def test_link_rejects_unknown_nickname(conn, deps):
@@ -63,7 +63,7 @@ async def test_link_rejects_unknown_nickname(conn, deps):
     await handlers.cmd_link(msg, cmd("stranger"), deps)
 
     assert "нет игрока" in msg.replies[0]
-    assert await queries.get_link_by_user(conn, 42) is None
+    assert await queries.get_links_by_user(conn, 42) == []
 
 
 async def test_link_offers_buttons_when_ambiguous(conn, deps):
@@ -75,7 +75,7 @@ async def test_link_offers_buttons_when_ambiguous(conn, deps):
     await handlers.cmd_link(msg, cmd("vas"), deps)
 
     assert "Кого из них" in msg.replies[0]
-    assert await queries.get_link_by_user(conn, 42) is None
+    assert await queries.get_links_by_user(conn, 42) == []
 
 
 async def test_relinking_frees_the_previous_player_tag(conn, deps):
@@ -85,8 +85,37 @@ async def test_relinking_frees_the_previous_player_tag(conn, deps):
 
     await handlers.cmd_link(msg, cmd("vasya"), deps)
 
-    assert await queries.get_link_by_user(conn, 99) is None
-    assert (await queries.get_link_by_user(conn, 42)).player_tag == "#P1"
+    assert await queries.get_links_by_user(conn, 99) == []
+    assert [link.player_tag for link in await queries.get_links_by_user(conn, 42)] == ["#P1"]
+
+
+async def test_whoami_lists_every_account(conn, deps):
+    await seed_roster(conn)
+    await queries.upsert_link(conn, 42, "#P1", "vasya", "Вася")
+    await queries.upsert_link(conn, 42, "#P2", "vasya", "Вася")
+    msg = FakeMessage()
+
+    await handlers.cmd_whoami(msg, deps)
+
+    assert "Vasya" in msg.replies[0]
+    assert "Kolya" in msg.replies[0]
+
+
+async def test_me_shows_a_block_per_account(conn, deps):
+    await seed_roster(conn)
+    for section in (0, 1):
+        await queries.upsert_war(conn, 58, section, "20260713T101500.000Z", 1, 5000)
+        await queries.upsert_war_results(
+            conn, [(58, section, "#P1", 2400, 16, 0), (58, section, "#P2", 1200, 16, 0)]
+        )
+    await queries.upsert_link(conn, 42, "#P1", "vasya", "Вася")
+    await queries.upsert_link(conn, 42, "#P2", "vasya", "Вася")
+    msg = FakeMessage()
+
+    await handlers.cmd_me(msg, cmd("all"), deps)
+
+    assert "Vasya" in msg.replies[0]
+    assert "Kolya" in msg.replies[0]
 
 
 async def test_today_lists_who_still_owes_attacks(conn, deps):

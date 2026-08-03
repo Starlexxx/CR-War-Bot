@@ -197,8 +197,8 @@ async def test_picking_a_nick_links_whoever_pressed(conn, deps):
 
     await handlers.cb_menu(callback, deps)
 
-    link = await queries.get_link_by_user(conn, OTHER.id)
-    assert link.player_tag == "#P2"
+    links = await queries.get_links_by_user(conn, OTHER.id)
+    assert [link.player_tag for link in links] == ["#P2"]
     assert "Привязано: Kolya" in callback.message.text
 
 
@@ -211,7 +211,7 @@ async def test_nick_claimed_meanwhile_is_refused(conn, deps):
     await handlers.cb_menu(callback, deps)
 
     assert "уже занят" in callback.alerts[0]
-    assert await queries.get_link_by_user(conn, OTHER.id) is None
+    assert await queries.get_links_by_user(conn, OTHER.id) == []
 
 
 async def test_relinking_your_own_nick_is_allowed(conn, deps):
@@ -224,14 +224,14 @@ async def test_relinking_your_own_nick_is_allowed(conn, deps):
     assert "Привязано" in callback.message.text
 
 
-async def test_unlink_button_clears_the_link(conn, deps):
+async def test_unlink_with_one_account_needs_no_choice(conn, deps):
     await seed(conn)
     await queries.upsert_link(conn, USER.id, "#P1", "vasya", "Вася")
     callback = FakeCallback("m:unlink")
 
     await handlers.cb_menu(callback, deps)
 
-    assert await queries.get_link_by_user(conn, USER.id) is None
+    assert await queries.get_links_by_user(conn, USER.id) == []
     assert "снята" in callback.message.text
 
 
@@ -241,7 +241,59 @@ async def test_unlink_without_a_link_says_so(conn, deps):
 
     await handlers.cb_menu(callback, deps)
 
-    assert "не было привязки" in callback.alerts[0]
+    assert "нет привязок" in callback.message.text
+
+
+async def test_unlink_with_several_accounts_offers_a_choice(conn, deps):
+    await seed(conn)
+    await queries.upsert_link(conn, USER.id, "#P1", "vasya", "Вася")
+    await queries.upsert_link(conn, USER.id, "#P2", "vasya", "Вася")
+    callback = FakeCallback("m:unlink")
+
+    await handlers.cb_menu(callback, deps)
+
+    assert "Что отвязать" in callback.message.text
+    labels = buttons(callback.message.markup)
+    assert "Vasya" in labels
+    assert "Kolya" in labels
+    assert "Отвязать все" in labels
+    assert await queries.get_links_by_user(conn, USER.id) != []
+
+
+async def test_unlinking_one_account_keeps_the_other(conn, deps):
+    await seed(conn)
+    await queries.upsert_link(conn, USER.id, "#P1", "vasya", "Вася")
+    await queries.upsert_link(conn, USER.id, "#P2", "vasya", "Вася")
+    callback = FakeCallback("m:unlinkone:#P1")
+
+    await handlers.cb_menu(callback, deps)
+
+    links = await queries.get_links_by_user(conn, USER.id)
+    assert [link.player_tag for link in links] == ["#P2"]
+    assert "Отвязано: Vasya" in callback.message.text
+
+
+async def test_nobody_can_unlink_someone_elses_account(conn, deps):
+    await seed(conn)
+    await queries.upsert_link(conn, USER.id, "#P1", "vasya", "Вася")
+    callback = FakeCallback("m:unlinkone:#P1", user=OTHER)
+
+    await handlers.cb_menu(callback, deps)
+
+    assert "не твоя привязка" in callback.alerts[0]
+    assert await queries.get_links_by_user(conn, USER.id) != []
+
+
+async def test_unlink_all_drops_every_account(conn, deps):
+    await seed(conn)
+    await queries.upsert_link(conn, USER.id, "#P1", "vasya", "Вася")
+    await queries.upsert_link(conn, USER.id, "#P2", "vasya", "Вася")
+    callback = FakeCallback("m:unlinkall")
+
+    await handlers.cb_menu(callback, deps)
+
+    assert await queries.get_links_by_user(conn, USER.id) == []
+    assert "Снято привязок: 2" in callback.message.text
 
 
 async def test_long_roster_is_paged(conn, deps):

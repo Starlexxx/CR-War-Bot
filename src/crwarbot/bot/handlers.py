@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from dataclasses import dataclass
 from html import escape
 
@@ -107,13 +108,31 @@ async def _render_discipline(deps: Deps, period: Period) -> Rendered:
     return formatters.discipline(rows, period), keyboards.discipline(period)
 
 
-async def _render_player(deps: Deps, player_tag: str, period: Period, owner_id: int) -> Rendered:
+async def _render_player(
+    deps: Deps, player_tags: Sequence[str], period: Period, owner_id: int
+) -> Rendered:
     race, season_id = await _race(deps)
     aggregates = await player_aggregates(
         deps.conn, period, season_id, race.section_index, only_current=False
     )
-    agg = next((a for a in aggregates if a.player_tag == player_tag), None)
-    return formatters.player_stats(agg, period), keyboards.player_stats(period, owner_id)
+    by_tag = {a.player_tag: a for a in aggregates}
+    mine = [by_tag[tag] for tag in player_tags if tag in by_tag]
+    return formatters.player_stats_many(mine, period), keyboards.player_stats(period, owner_id)
+
+
+async def _render_unlink(deps: Deps, tg_user_id: int) -> Rendered:
+    """Drops the only account outright; offers a choice when there are several."""
+    links = await queries.get_links_by_user(deps.conn, tg_user_id)
+    if not links:
+        return "У тебя нет привязок.", keyboards.plain()
+
+    if len(links) == 1:
+        await queries.delete_link(deps.conn, tg_user_id, links[0].player_tag)
+        return "Привязка снята.", keyboards.plain()
+
+    names = await queries.get_member_names(deps.conn)
+    accounts = [(names.get(link.player_tag, link.player_tag), link.player_tag) for link in links]
+    return "Что отвязать?", keyboards.unlink_picker(accounts)
 
 
 async def _render_link_picker(deps: Deps, page: int) -> Rendered:
@@ -232,20 +251,22 @@ async def cb_link(callback: CallbackQuery, deps: Deps) -> None:
 @router.message(Command("unlink"))
 async def cmd_unlink(message: Message, deps: Deps) -> None:
     assert message.from_user is not None
-    removed = await queries.delete_link(deps.conn, message.from_user.id)
-    await message.answer("Привязка снята." if removed else "У тебя не было привязки.")
+    await _reply(message, await _render_unlink(deps, message.from_user.id))
 
 
 @router.message(Command("whoami"))
 async def cmd_whoami(message: Message, deps: Deps) -> None:
     assert message.from_user is not None
-    link = await queries.get_link_by_user(deps.conn, message.from_user.id)
-    if link is None:
+    links = await queries.get_links_by_user(deps.conn, message.from_user.id)
+    if not links:
         await message.answer(NOT_LINKED, parse_mode="HTML")
         return
     names = await queries.get_member_names(deps.conn)
-    name = names.get(link.player_tag, link.player_tag)
-    await message.answer(f"Ты — {escape(name)} ({escape(link.player_tag)})", parse_mode="HTML")
+    lines = ["Твои аккаунты:"] + [
+        f"• {escape(names.get(link.player_tag, link.player_tag))} ({escape(link.player_tag)})"
+        for link in links
+    ]
+    await message.answer("\n".join(lines), parse_mode="HTML")
 
 
 @router.message(Command("today"))
@@ -281,8 +302,8 @@ async def cmd_discipline(message: Message, command: CommandObject, deps: Deps) -
 @router.message(Command("me"))
 async def cmd_me(message: Message, command: CommandObject, deps: Deps) -> None:
     assert message.from_user is not None
-    link = await queries.get_link_by_user(deps.conn, message.from_user.id)
-    if link is None:
+    links = await queries.get_links_by_user(deps.conn, message.from_user.id)
+    if not links:
         await message.answer(NOT_LINKED, parse_mode="HTML")
         return
     try:
@@ -290,9 +311,8 @@ async def cmd_me(message: Message, command: CommandObject, deps: Deps) -> None:
     except PeriodParseError:
         await message.answer(PERIOD_HELP, parse_mode="HTML")
         return
-    await _reply(
-        message, await _render_player(deps, link.player_tag, period, message.from_user.id)
-    )
+    tags = [link.player_tag for link in links]
+    await _reply(message, await _render_player(deps, tags, period, message.from_user.id))
 
 
 @router.message(Command("stats"))
@@ -319,7 +339,7 @@ async def cmd_stats(message: Message, command: CommandObject, deps: Deps) -> Non
         await message.answer(PERIOD_HELP, parse_mode="HTML")
         return
 
-    text, _ = await _render_player(deps, hits[0].player_tag, period, message.from_user.id)
+    text, _ = await _render_player(deps, [hits[0].player_tag], period, message.from_user.id)
     await message.answer(text, parse_mode="HTML")
 
 
@@ -350,7 +370,14 @@ async def cb_menu(callback: CallbackQuery, deps: Deps) -> None:
         await _link_from_menu(callback, deps, args[0])
         return
     if action == "unlink":
-        await _unlink_from_menu(callback, deps)
+        await _edit(callback, await _render_unlink(deps, callback.from_user.id))
+        return
+    if action == "unlinkone":
+        await _unlink_one(callback, deps, args[0])
+        return
+    if action == "unlinkall":
+        removed = await queries.delete_all_links(deps.conn, callback.from_user.id)
+        await _edit(callback, (f"Снято привязок: {removed}.", keyboards.plain()))
         return
     if action == "pick":
         await _edit(callback, await _render_link_picker(deps, int(args[0]) if args else 0))
@@ -409,12 +436,16 @@ async def _link_from_menu(callback: CallbackQuery, deps: Deps, player_tag: str) 
     )
 
 
-async def _unlink_from_menu(callback: CallbackQuery, deps: Deps) -> None:
-    removed = await queries.delete_link(deps.conn, callback.from_user.id)
+async def _unlink_one(callback: CallbackQuery, deps: Deps, player_tag: str) -> None:
+    # Scoping the delete to the presser's id is what stops anyone from stripping
+    # someone else's account off the shared picker.
+    removed = await queries.delete_link(deps.conn, callback.from_user.id, player_tag)
     if not removed:
-        await callback.answer("У тебя не было привязки", show_alert=True)
+        await callback.answer("Это не твоя привязка", show_alert=True)
         return
-    await _edit(callback, ("Привязка снята.", keyboards.plain()))
+    names = await queries.get_member_names(deps.conn)
+    name = names.get(player_tag, player_tag)
+    await _edit(callback, (f"Отвязано: {escape(name)}", keyboards.plain()))
 
 
 async def _answer_me(
@@ -426,12 +457,13 @@ async def _answer_me(
         await callback.answer("Это чужая статистика, нажми «Моя статистика»", show_alert=True)
         return
 
-    link = await queries.get_link_by_user(deps.conn, callback.from_user.id)
-    if link is None:
+    links = await queries.get_links_by_user(deps.conn, callback.from_user.id)
+    if not links:
         await callback.answer("Сначала привяжись: кнопка «Привязаться»", show_alert=True)
         return
 
-    text, markup = await _render_player(deps, link.player_tag, period, callback.from_user.id)
+    tags = [link.player_tag for link in links]
+    text, markup = await _render_player(deps, tags, period, callback.from_user.id)
     if len(args) > 1:
         await _edit(callback, (text, markup))
         return

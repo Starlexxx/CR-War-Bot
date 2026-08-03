@@ -151,6 +151,13 @@ def player_stats(agg: PlayerAggregate | None, period: Period) -> str:
     return "\n".join(lines)
 
 
+def player_stats_many(aggs: Sequence[PlayerAggregate], period: Period) -> str:
+    blocks = [player_stats(a, period) for a in aggs if a.wars]
+    if not blocks:
+        return f"Нет данных за период: {period.label()}."
+    return "\n\n".join(blocks)
+
+
 def roster(linked: Sequence[tuple[str, Link]], unlinked: Sequence[str]) -> str:
     lines = [f"👥 Привязано {len(linked)} из {len(linked) + len(unlinked)}"]
     if linked:
@@ -173,7 +180,7 @@ HELP = """<b>CRWarBot</b>
 Привязка:
 /link &lt;ник или тег&gt; — связать телеграм с игровым аккаунтом
 /unlink — снять привязку
-/whoami — показать текущую привязку
+/whoami — показать свои аккаунты
 
 Война:
 /today — кто ещё не отыграл сегодня
