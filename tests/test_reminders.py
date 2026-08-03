@@ -48,9 +48,23 @@ async def test_sends_debtor_list_at_t16(conn):
     bot = FakeBot()
 
     assert await send(bot, conn, r) == ["t16"]
-    assert "16 ч" in bot.sent[0]
+    assert "16 часов в запасе" in bot.sent[0]
     assert "Two (1/4)" in bot.sent[0]
     assert "One" not in bot.sent[0]
+
+
+async def test_only_the_last_call_gives_an_order(conn):
+    await seed_roster(conn, [("#P2", "Two")])
+    r = race([participant("#P2", "Two", 200, 1, 1)])
+
+    early = FakeBot()
+    await send(early, conn, r, now=AT_T16)
+    late = FakeBot()
+    await send(late, conn, r, now=AT_T4)
+
+    assert "Без вариантов" not in early.sent[0]
+    assert "ОСТАЛОСЬ 4 ЧАСА" in late.sent[0]
+    assert "Отыграть атаки. Без вариантов." in late.sent[0]
 
 
 async def test_players_who_left_the_clan_are_not_nagged(conn):
@@ -83,7 +97,7 @@ async def test_finished_race_sends_nothing(conn):
     assert bot.sent == []
 
 
-async def test_linked_player_is_mentioned_by_username(conn):
+async def test_linked_player_is_pinged_through_the_game_name(conn):
     await seed_roster(conn, [("#P2", "Two")])
     await queries.upsert_link(conn, 42, "#P2", "twoguy", "Two Guy")
     r = race([participant("#P2", "Two", 200, 1, 1)])
@@ -91,18 +105,20 @@ async def test_linked_player_is_mentioned_by_username(conn):
 
     await send(bot, conn, r, now=AT_T4)
 
-    assert "@twoguy — Two (1/4)" in bot.sent[0]
+    assert '<a href="tg://user?id=42">Two</a> (1/4)' in bot.sent[0]
+    assert "twoguy" not in bot.sent[0]
 
 
-async def test_player_without_username_gets_inline_mention(conn):
+async def test_unlinked_player_is_named_but_not_pinged(conn):
     await seed_roster(conn, [("#P2", "Two")])
-    await queries.upsert_link(conn, 42, "#P2", None, "Two Guy")
     r = race([participant("#P2", "Two", 200, 1, 1)])
     bot = FakeBot()
 
     await send(bot, conn, r, now=AT_T4)
 
-    assert "tg://user?id=42" in bot.sent[0]
+    assert "Two (1/4)" in bot.sent[0]
+    assert "tg://user" not in bot.sent[0]
+    assert "«Привязаться» в /menu" in bot.sent[0]
 
 
 async def test_second_call_does_not_resend(conn):

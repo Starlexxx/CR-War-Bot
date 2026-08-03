@@ -4,7 +4,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from html import escape
 
-from crwarbot.bot.mentions import mention_with_game_name
+from crwarbot.bot.mentions import mention
 from crwarbot.db.queries import Link
 from crwarbot.domain.periods import DECKS_PER_DAY, Period
 from crwarbot.domain.stats import DisciplineRow, PlayerAggregate, RatingRow
@@ -21,9 +21,18 @@ class Debtor:
     link: Link | None
 
 
+REMINDER_HEADS = {
+    "t16": "⚔️ День войны начался. 16 часов в запасе.",
+    "t4": "⚔️ ОСТАЛОСЬ 4 ЧАСА",
+}
+
+# Only the last call escalates: pushing equally hard twice a day trains people
+# to skip both.
+REMINDER_TAILS = {"t4": "Отыграть атаки. Без вариантов."}
+
+
 def reminder(kind: str, debtors: Sequence[Debtor]) -> str:
-    hours = {"t16": 16, "t4": 4}[kind]
-    head = f"⚔️ До конца дня войны — {hours} ч"
+    head = REMINDER_HEADS[kind]
 
     if not debtors:
         return f"{head}\n\nВсе отыграли. Ни одной пропущенной атаки."
@@ -34,10 +43,15 @@ def reminder(kind: str, debtors: Sequence[Debtor]) -> str:
 
     for d in linked + unlinked:
         used = d.decks_used_today
-        lines.append(f"{mention_with_game_name(d.name, d.link)} ({used}/{DECKS_PER_DAY})")
+        lines.append(f"{mention(d.name, d.link)} ({used}/{DECKS_PER_DAY})")
 
     if unlinked:
-        lines += ["", "Не привязаны к телеграму. Привязаться: /link &lt;ник&gt;"]
+        lines += ["", "Не привязаны к телеграму — жми «Привязаться» в /menu."]
+
+    # Last line, so the order is what people see under a collapsed message.
+    tail = REMINDER_TAILS.get(kind)
+    if tail:
+        lines += ["", tail]
 
     return "\n".join(lines)
 
